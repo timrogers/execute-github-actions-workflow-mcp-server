@@ -1,0 +1,43 @@
+{
+  "name": "execute-github-actions-workflow-mcp-server",
+  "version": "1.0.0",
+  "description": "MCP server for executing GitHub Actions workflows",
+  "main": "src/index.ts",
+  "type": "module",
+  "bin": "src/index.ts",
+  "scripts": {
+    "build": "tsc",
+    "start": "tsx src/index.ts",
+    "dev": "tsx src/index.ts",
+    "lint": "eslint src/",
+    "lint:fix": "eslint src/ --fix",
+    "format": "prettier --write .",
+    "format:check": "prettier --check ."
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@octokit/rest": "^20.0.2",
+    "@action-validator/core": "^0.6.0",
+    "tsx": "^4.0.0",
+    "yaml": "^2.3.4",
+    "zod": "^3.22.4"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.0.0",
+    "@types/eslint__js": "^8.42.3",
+    "@types/node": "^20.0.0",
+    "eslint": "^9.0.0",
+    "eslint-config-prettier": "^9.0.0",
+    "prettier": "^3.0.0",
+    "typescript": "^5.0.0",
+    "typescript-eslint": "^8.0.0"
+  },
+  "keywords": [
+    "mcp",
+    "github",
+    "actions",
+    "workflow"
+  ],
+  "author": "",
+  "license": "MIT"
+}
