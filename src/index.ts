@@ -256,31 +256,14 @@ class GitHubActionsWorkflowServer {
     try {
       // Get default branch
       logger.logGitHubAPI('get-repository', this.config.owner, this.config.repo);
-      
-      let repo;
-      try {
-        const response = await this.octokit.repos.get({
-          owner: this.config.owner,
-          repo: this.config.repo,
-        });
-        repo = response.data;
-      } catch (repoError: any) {
-        logger.error('Failed to access repository', repoError, {
-          owner: this.config.owner,
-          repo: this.config.repo,
-          status: repoError.status,
-          message: repoError.message,
-        });
-        
-        if (repoError.status === 404) {
-          throw new Error(`Repository '${this.config.owner}/${this.config.repo}' not found. Check if the repository exists and your token has access to it.`);
-        } else if (repoError.status === 403) {
-          throw new Error(`Access forbidden to repository '${this.config.owner}/${this.config.repo}'. Check your token permissions.`);
-        } else {
-          throw new Error(`Failed to access repository: ${repoError.message}`);
-        }
-      }
-      
+
+      const response = await this.octokit.repos.get({
+        owner: this.config.owner,
+        repo: this.config.repo,
+      });
+
+      const repo = response.data;
+
       const defaultBranch = repo.default_branch;
       logger.info('Retrieved repository information', {
         defaultBranch,
