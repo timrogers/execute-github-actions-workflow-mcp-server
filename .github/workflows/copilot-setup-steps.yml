@@ -24,6 +24,10 @@ jobs:
           EOF
           chmod 600 ~/.netrc
 
+      - name: Force Git to use HTTPS instead of SSH
+        run: |
+          git config --global url."https://github.com/".insteadOf git@github.com:
+
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
