@@ -7,6 +7,7 @@ import { Octokit } from '@octokit/rest';
 import { z } from 'zod';
 import { validateWorkflow } from '@action-validator/core';
 import * as YAML from 'yaml';
+import * as crypto from 'crypto';
 import { logger } from './logger.js';
 
 const ConfigSchema = z.object({
@@ -240,8 +241,9 @@ class GitHubActionsWorkflowServer {
     logger.logWorkflowExecution('validating-mutated', 'N/A');
     await this.validateWorkflowYaml(mutatedWorkflowContent, 'mutated');
 
+    const uniqueId = crypto.randomUUID();
     const branchName = parsed.branch_name || `mcp-workflow-${Date.now()}`;
-    const workflowFileName = '.github/workflows/mcp-executed-workflow.yml';
+    const workflowFileName = `.github/workflows/mcp-executed-workflow-${uniqueId}.yml`;
     let branchCreated = false;
 
     logger.info('Workflow processing complete, starting GitHub operations', {
@@ -254,10 +256,31 @@ class GitHubActionsWorkflowServer {
     try {
       // Get default branch
       logger.logGitHubAPI('get-repository', this.config.owner, this.config.repo);
-      const { data: repo } = await this.octokit.repos.get({
-        owner: this.config.owner,
-        repo: this.config.repo,
-      });
+      
+      let repo;
+      try {
+        const response = await this.octokit.repos.get({
+          owner: this.config.owner,
+          repo: this.config.repo,
+        });
+        repo = response.data;
+      } catch (repoError: any) {
+        logger.error('Failed to access repository', repoError, {
+          owner: this.config.owner,
+          repo: this.config.repo,
+          status: repoError.status,
+          message: repoError.message,
+        });
+        
+        if (repoError.status === 404) {
+          throw new Error(`Repository '${this.config.owner}/${this.config.repo}' not found. Check if the repository exists and your token has access to it.`);
+        } else if (repoError.status === 403) {
+          throw new Error(`Access forbidden to repository '${this.config.owner}/${this.config.repo}'. Check your token permissions.`);
+        } else {
+          throw new Error(`Failed to access repository: ${repoError.message}`);
+        }
+      }
+      
       const defaultBranch = repo.default_branch;
       logger.info('Retrieved repository information', {
         defaultBranch,
@@ -326,29 +349,12 @@ class GitHubActionsWorkflowServer {
       logger.info('Workflow file pushed successfully', {
         path: workflowFileName,
         branch: branchName,
+        uniqueId,
       });
 
-      // Wait a moment for GitHub to process the new workflow
-      logger.debug('Waiting for GitHub to process workflow file');
-      await new Promise(resolve => setTimeout(resolve, 2000));
-
-      // Get workflow runs for this branch
-      logger.logGitHubAPI('list-workflow-runs', this.config.owner, this.config.repo, {
-        branch: branchName,
-      });
-      logger.logWorkflowExecution('checking-runs', branchName);
-
-      const { data: workflowRuns } = await this.octokit.actions.listWorkflowRunsForRepo({
-        owner: this.config.owner,
-        repo: this.config.repo,
-        branch: branchName,
-        per_page: 1,
-      });
-
-      logger.info('Retrieved workflow runs', {
-        runCount: workflowRuns.workflow_runs.length,
-        totalCount: workflowRuns.total_count,
-      });
+      // Wait for GitHub to process the new workflow with exponential backoff
+      logger.debug('Waiting for GitHub to process workflow file and trigger run');
+      const workflowRuns = await this.waitForWorkflowRun(branchName, workflowFileName);
 
       if (workflowRuns.workflow_runs.length === 0) {
         const error = new Error(
@@ -408,6 +414,119 @@ class GitHubActionsWorkflowServer {
     }
   }
 
+  private async waitForWorkflowRun(branchName: string, workflowFileName: string) {
+    const maxWaitTime = 30000; // 30 seconds max
+    const startTime = Date.now();
+    let attempt = 0;
+    let delay = 1000; // Start with 1 second
+
+    logger.info('Starting workflow run detection with exponential backoff', {
+      branchName,
+      workflowFileName,
+      maxWaitTimeMs: maxWaitTime,
+      initialDelayMs: delay,
+    });
+
+    while (Date.now() - startTime < maxWaitTime) {
+      attempt++;
+      
+      logger.debug(`Checking for workflow runs - attempt ${attempt}`, {
+        branchName,
+        workflowFileName,
+        elapsedMs: Date.now() - startTime,
+        currentDelayMs: delay,
+      });
+
+      logger.logGitHubAPI('list-workflow-runs', this.config.owner, this.config.repo, {
+        branch: branchName,
+      });
+
+      const { data: allWorkflowRuns } = await this.octokit.actions.listWorkflowRunsForRepo({
+        owner: this.config.owner,
+        repo: this.config.repo,
+        branch: branchName,
+        per_page: 20, // Get more runs to filter through
+      });
+
+      // Filter to find runs for our specific workflow file with unique filename
+      const matchingRuns = allWorkflowRuns.workflow_runs.filter(run => {
+        const isCorrectWorkflow = run.path === workflowFileName;
+        
+        logger.debug('Evaluating workflow run', {
+          runId: run.id,
+          runPath: run.path,
+          targetPath: workflowFileName,
+          runCreatedAt: run.created_at,
+          matches: isCorrectWorkflow,
+        });
+        
+        return isCorrectWorkflow;
+      });
+
+      logger.info(`Workflow run check attempt ${attempt}`, {
+        branchName,
+        workflowFileName,
+        totalRunCount: allWorkflowRuns.workflow_runs.length,
+        matchingRunCount: matchingRuns.length,
+        elapsedMs: Date.now() - startTime,
+        allRuns: allWorkflowRuns.workflow_runs.map(run => ({
+          id: run.id,
+          path: run.path,
+          created_at: run.created_at,
+        })),
+      });
+
+      if (matchingRuns.length > 0) {
+        const filteredResult = {
+          workflow_runs: matchingRuns,
+          total_count: matchingRuns.length,
+        };
+        
+        logger.info('Matching workflow run found successfully', {
+          branchName,
+          workflowFileName,
+          totalAttempts: attempt,
+          totalWaitMs: Date.now() - startTime,
+          matchingRunId: matchingRuns[0].id,
+        });
+        return filteredResult;
+      }
+
+      const remainingTime = maxWaitTime - (Date.now() - startTime);
+      if (remainingTime > delay) {
+        logger.debug(`No matching workflow run found, waiting ${delay}ms before next attempt`, {
+          branchName,
+          workflowFileName,
+          attempt,
+          remainingTimeMs: remainingTime,
+          nextDelayMs: Math.min(delay * 2, 5000),
+        });
+        
+        await new Promise(resolve => setTimeout(resolve, delay));
+        delay = Math.min(delay * 2, 5000); // Cap at 5 seconds
+      } else {
+        logger.warn('Insufficient time remaining for next attempt', {
+          branchName,
+          workflowFileName,
+          remainingTimeMs: remainingTime,
+          requiredDelayMs: delay,
+        });
+        break;
+      }
+    }
+
+    logger.error('Matching workflow run detection timed out', undefined, {
+      branchName,
+      workflowFileName,
+      totalAttempts: attempt,
+      totalWaitMs: Date.now() - startTime,
+      maxWaitMs: maxWaitTime,
+    });
+
+    // Return empty result to maintain existing error handling
+    return { workflow_runs: [], total_count: 0 };
+  }
+
   private async pollWorkflowCompletion(runId: number) {
     const maxAttempts = 60; // 10 minutes max
     const pollInterval = 10000; // 10 seconds
@@ -444,7 +563,7 @@ class GitHubActionsWorkflowServer {
           totalAttempts: attempt + 1,
         });
 
-        // Get jobs for detailed information
+        // Get jobs for detailed information and logs
         const { data: jobs } = await this.octokit.actions.listJobsForWorkflowRun({
           owner: this.config.owner,
           repo: this.config.repo,
@@ -461,23 +580,40 @@ class GitHubActionsWorkflowServer {
           })),
         });
 
+        // Collect logs from all jobs
+        let allLogs = '';
+        for (const job of jobs.jobs) {
+          try {
+            logger.debug('Fetching logs for job', { jobId: job.id, jobName: job.name });
+            const { data: logData } = await this.octokit.actions.downloadJobLogsForWorkflowRun({
+              owner: this.config.owner,
+              repo: this.config.repo,
+              job_id: job.id,
+            });
+            
+            // logData is a string with raw logs
+            const jobLogs = typeof logData === 'string' ? logData : logData.toString();
+            
+            if (jobLogs.trim()) {
+              allLogs += `=== Job: ${job.name} ===\n`;
+              allLogs += jobLogs;
+              allLogs += '\n\n';
+            }
+          } catch (logError) {
+            logger.warn('Failed to fetch logs for job', logError, { jobId: job.id, jobName: job.name });
+            allLogs += `=== Job: ${job.name} ===\n`;
+            allLogs += `[Error fetching logs: ${logError}]\n\n`;
+          }
+        }
+
         const result = {
           status: run.status,
           conclusion: run.conclusion,
           html_url: run.html_url,
-          created_at: run.created_at,
-          updated_at: run.updated_at,
-          jobs: jobs.jobs.map(job => ({
-            name: job.name,
-            status: job.status,
-            conclusion: job.conclusion,
-            started_at: job.started_at,
-            completed_at: job.completed_at,
-            html_url: job.html_url,
-          })),
+          logs: allLogs,
         };
 
-        logger.info('Workflow polling completed successfully', { runId, result });
+        logger.info('Workflow polling completed successfully', { runId });
         return result;
       }
 
