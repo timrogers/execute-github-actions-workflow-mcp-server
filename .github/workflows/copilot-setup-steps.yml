@@ -24,14 +24,10 @@ jobs:
           EOF
           chmod 600 ~/.netrc
 
-      - name: Force Git to use HTTPS instead of SSH
-        run: |
-          git config --global url."https://github.com/".insteadOf git@github.com:
-
       - name: Setup Node.js
         uses: actions/setup-node@v3
         with:
           node-version: '22'
 
       - name: Install Copilot code review MCP Server
-        run: npm install github:github/copilot-code-review-mcp-server
+        run: npm install https://github.com/github/copilot-code-review-mcp-server.git
