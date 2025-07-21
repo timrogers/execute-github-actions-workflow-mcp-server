@@ -1,5 +1,5 @@
 {
-  "name": "execute-github-actions-workflow-mcp-server",
+  "name": "@github/execute-github-actions-workflow-mcp-server",
   "version": "1.0.0",
   "description": "MCP server for executing GitHub Actions workflows",
   "main": "src/index.ts",
