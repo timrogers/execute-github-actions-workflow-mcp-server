@@ -24,6 +24,9 @@ jobs:
           EOF
           chmod 600 ~/.netrc
 
+      - name: Force HTTPS in .npmrc
+        run: echo "git+https://github.com/" >> ~/.npmrc
+
       - name: Force Git to use HTTPS instead of SSH
         run: |
           git config --global url."https://github.com/".insteadOf git@github.com:
