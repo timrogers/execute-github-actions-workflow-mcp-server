@@ -15,21 +15,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Configure .netrc for private repo access
+      - name: Configure .npmrc for GitHub Packages access
         run: |
-          cat <<EOF >> ~/.netrc
-          machine github.com
-            login timrogers
-            password ${{ secrets.DOWNLOAD_MCP_SERVER_PAT }}
-          EOF
-          chmod 600 ~/.netrc
-
-      - name: Force HTTPS in .npmrc
-        run: echo "git+https://github.com/" >> ~/.npmrc
-
-      - name: Force Git to use HTTPS instead of SSH
-        run: |
-          git config --global url."https://github.com/".insteadOf git@github.com:
+          echo "//npm.pkg.github.com/:_authToken=${{ secrets.GITHUB_TOKEN }}" > ~/.npmrc
+          echo "@github:registry=https://npm.pkg.github.com" >> ~/.npmrc
 
       - name: Setup Node.js
         uses: actions/setup-node@v3
@@ -37,4 +26,4 @@ jobs:
           node-version: '22'
 
       - name: Install Copilot code review MCP Server
-        run: npm install https://github.com/github/copilot-code-review-mcp-server.git
+        run: npm install @github/copilot-code-review-mcp-server
