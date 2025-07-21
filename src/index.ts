@@ -412,7 +412,7 @@ class GitHubActionsWorkflowServer {
 
     while (Date.now() - startTime < maxWaitTime) {
       attempt++;
-      
+
       logger.debug(`Checking for workflow runs - attempt ${attempt}`, {
         branchName,
         workflowFileName,
@@ -434,7 +434,7 @@ class GitHubActionsWorkflowServer {
       // Filter to find runs for our specific workflow file with unique filename
       const matchingRuns = allWorkflowRuns.workflow_runs.filter(run => {
         const isCorrectWorkflow = run.path === workflowFileName;
-        
+
         logger.debug('Evaluating workflow run', {
           runId: run.id,
           runPath: run.path,
@@ -442,7 +442,7 @@ class GitHubActionsWorkflowServer {
           runCreatedAt: run.created_at,
           matches: isCorrectWorkflow,
         });
-        
+
         return isCorrectWorkflow;
       });
 
@@ -464,7 +464,7 @@ class GitHubActionsWorkflowServer {
           workflow_runs: matchingRuns,
           total_count: matchingRuns.length,
         };
-        
+
         logger.info('Matching workflow run found successfully', {
           branchName,
           workflowFileName,
@@ -484,7 +484,7 @@ class GitHubActionsWorkflowServer {
           remainingTimeMs: remainingTime,
           nextDelayMs: Math.min(delay * 2, 5000),
         });
-        
+
         await new Promise(resolve => setTimeout(resolve, delay));
         delay = Math.min(delay * 2, 5000); // Cap at 5 seconds
       } else {
@@ -573,17 +573,20 @@ class GitHubActionsWorkflowServer {
               repo: this.config.repo,
               job_id: job.id,
             });
-            
+
             // logData is a string with raw logs
             const jobLogs = typeof logData === 'string' ? logData : logData.toString();
-            
+
             if (jobLogs.trim()) {
               allLogs += `=== Job: ${job.name} ===\n`;
               allLogs += jobLogs;
               allLogs += '\n\n';
             }
           } catch (logError) {
-            logger.warn('Failed to fetch logs for job', logError, { jobId: job.id, jobName: job.name });
+            logger.warn('Failed to fetch logs for job', logError, {
+              jobId: job.id,
+              jobName: job.name,
+            });
             allLogs += `=== Job: ${job.name} ===\n`;
             allLogs += `[Error fetching logs: ${logError}]\n\n`;
           }
